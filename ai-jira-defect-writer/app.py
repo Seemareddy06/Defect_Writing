@@ -12,12 +12,19 @@ st.title("🧠 AI-Powered Jira Defect Writing Tool (Enhanced)")
 st.markdown("Paste your user story, issue, and impact area to generate a detailed, Jira-ready defect report automatically.")
 
 # ---------------------------
+# LOAD API KEY SECURELY
+# ---------------------------
+if "OPENROUTER_API_KEY" not in st.secrets:
+    st.error("⚠️ API key not found. Please add it in Streamlit Secrets as OPENROUTER_API_KEY.")
+    st.stop()
+
+OPENROUTER_API_KEY = st.secrets["OPENROUTER_API_KEY"]
+
+# ---------------------------
 # SIDEBAR INPUTS
 # ---------------------------
-OPENROUTER_API_KEY = st.secrets["OPENROUTER_API_KEY"]  # Securely fetched
-
 with st.sidebar:
-    st.header("Defect Details")
+    st.header("🧾 Defect Details")
     sprint_number = st.number_input("🏷️ Sprint Number", min_value=1, step=1)
     module_name = st.text_input("Module Name", placeholder="e.g., ICHRA")
     environment = st.selectbox("🌐 Environment", ["QA", "UAT", "Production"])
@@ -25,7 +32,7 @@ with st.sidebar:
     plan_id = st.text_input("Plan ID", placeholder="Enter Plan ID")
 
 # ---------------------------
-# MAIN BODY INPUT
+# MAIN BODY INPUTS
 # ---------------------------
 user_story = st.text_area(
     "Paste User Story / Issue Details",
@@ -50,6 +57,7 @@ if generate_btn:
     else:
         impact_sentence = f"This impacts the {impact_area.strip()}." if impact_area.strip() else ""
 
+        # --- Prompt Templates ---
         system_prompt = f"""
         You are a senior QA Engineer writing Jira defects in a structured, professional format.
         Based on the provided user story, issue details, and impact area, generate a **complete Jira defect**.
@@ -98,12 +106,16 @@ if generate_btn:
         {impact_area}
         """
 
+        # --- API Call ---
         with st.spinner("🤖 Generating Jira defect report..."):
             try:
                 url = "https://openrouter.ai/api/v1/chat/completions"
                 headers = {
                     "Authorization": f"Bearer {OPENROUTER_API_KEY}",
                     "Content-Type": "application/json",
+                    # These two lines are crucial for Streamlit Cloud deployments
+                    "HTTP-Referer": "https://ai-jira-defect-writer.streamlit.app/",
+                    "User-Agent": "streamlit-ai-jira-defect-writer/1.0"
                 }
                 payload = {
                     "model": "gpt-4o-mini",
@@ -126,6 +138,7 @@ if generate_btn:
                     st.success("✅ Jira Defect Generated Successfully!")
                     st.text_area("📄 Jira Defect Output", ai_output, height=400)
 
+                    # --- Export to Word ---
                     doc = Document()
                     doc.add_heading(f"Defect Report (Sprint {int(sprint_number)})", level=1)
                     for line in ai_output.splitlines():
@@ -149,5 +162,10 @@ if generate_btn:
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                     )
 
-            except Exception as e:
+            except requests.exceptions.HTTPError as e:
                 st.error(f"❌ Error generating report: {e}")
+                if response.status_code == 401:
+                    st.warning("🔑 401 Unauthorized — please verify your OpenRouter API key and headers.")
+            except Exception as e:
+                st.error(f"❌ Unexpected error: {e}")
+
