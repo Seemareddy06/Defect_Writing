@@ -3,18 +3,17 @@ import requests
 from io import BytesIO
 from docx import Document
 from docx.shared import Pt
-
 from dotenv import load_dotenv
 import os
 
-load_dotenv() 
-
 # ---------------------------
-# CONFIGURATION
+# LOAD ENV & CONFIGURATION
 # ---------------------------
+load_dotenv()
 st.set_page_config(page_title="AI Jira Defect Writer", layout="wide")
+
 st.title("🧠 AI-Powered Jira Defect Writing Tool")
-st.markdown("Paste your user story, issue, and impact area to generate a full Jira defect report with sprint info.")
+st.markdown("Paste your user story, issue, and impact area to generate a full Jira defect report with sprint info. The system will **automatically detect defect type** (Functional, Database, Regression, etc.).")
 
 # ---------------------------
 # SIDEBAR INPUTS
@@ -53,10 +52,22 @@ if generate_btn:
     if not user_story.strip() or not module_name.strip():
         st.warning("⚠️ Please enter Module Name and User Story / Issue details.")
     else:
-        # AI prompt tailored for Jira defects with Impact Area
+        # Enhanced system prompt (DEFECT TYPE moved to end)
         system_prompt = f"""
-        You are an experienced QA Test Engineer. 
-        Based on the user story, impact area, and issue, generate a Jira defect in this format exactly:
+        You are an experienced QA Test Engineer.
+        Analyze the provided user story, issue, and impact area, and then generate a **complete Jira defect report**.
+        You must infer and include the **Defect Type** from one of these categories:
+        - Functional
+        - Database
+        - Regression
+        - UI/UX
+        - Validation
+        - Performance
+        - Security
+        - Integration
+        - Compatibility
+
+        The report format must be exactly like this:
 
         TITLE: Sprint {int(sprint_number)} - {module_name} - <short issue title>
         ISSUE DESCRIPTION: <describe the issue in detail including Impact Area>
@@ -68,11 +79,9 @@ if generate_btn:
         ACTUAL RESULT: <what actually happens>
         PLAN ID: {plan_id}
         GROUP ID: {group_id}
+        DEFECT TYPE: <one of the above types>
 
-        Use clear, professional language suitable for Jira. 
-        Reference the ICHRA example:
-        'As a superuser/Broker user - ICHRA: Unable to update ICHRA settings - getting Invalid request error. 
-        Module navigation: Super User -> Group -> Add groups popup -> add ICHRA group -> fill mandatory details -> Save and next -> ICHRA -> Fill settings, contribution and plan details -> Save and Next -> Go back and verify details. Details are not saved. Now enter again and update - Getting 400 - Invalid request body error.'
+        Use clear, professional QA tone.
         """
 
         user_prompt = f"""
@@ -83,9 +92,8 @@ if generate_btn:
         {user_story}
         """
 
-        with st.spinner("🤖 Generating Jira defect report..."):
+        with st.spinner("🤖 Analyzing and generating Jira defect report..."):
             try:
-                # API Call to OpenRouter
                 url = "https://openrouter.ai/api/v1/chat/completions"
                 headers = {
                     "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -104,7 +112,7 @@ if generate_btn:
                 response.raise_for_status()
                 data = response.json()
 
-                # Safe extraction of AI output
+                # Extract AI response safely
                 choices = data.get("choices")
                 if not choices or len(choices) == 0:
                     st.error("❌ AI response is empty. Try again.")
@@ -114,18 +122,21 @@ if generate_btn:
                     if not ai_output:
                         st.error("❌ AI returned empty content.")
                     else:
-                        # Display in Streamlit (only once)
-                        st.success("✅ Generated Jira Defect Report")
-                        st.text_area("Jira Defect (Copy Below)", ai_output, height=350, key="jira_defect_text")
+                        st.success("✅ Generated Jira Defect Report with Auto-Detected Defect Type")
+                        st.text_area("Jira Defect (Copy Below)", ai_output, height=400, key="jira_defect_text")
 
-                        # Export to Word
+                        # ---------------------------
+                        # EXPORT TO WORD FILE
+                        # ---------------------------
                         doc = Document()
                         doc.add_heading(f"Defect Report (Sprint {int(sprint_number)})", level=1)
                         for line in ai_output.splitlines():
-                            if line.strip().startswith(("TITLE:", "ISSUE DESCRIPTION:", 
-                                                        "STEPS TO REPRODUCE:", 
-                                                        "EXPECTED RESULT:", "ACTUAL RESULT:", 
-                                                        "PLAN ID:", "GROUP ID:")):
+                            if line.strip().startswith((
+                                "TITLE:", "ISSUE DESCRIPTION:", 
+                                "STEPS TO REPRODUCE:", "EXPECTED RESULT:",
+                                "ACTUAL RESULT:", "PLAN ID:", "GROUP ID:",
+                                "DEFECT TYPE:"
+                            )):
                                 p = doc.add_paragraph(line.strip())
                                 p.runs[0].bold = True
                                 p.runs[0].font.size = Pt(12)
@@ -135,6 +146,7 @@ if generate_btn:
                         buffer = BytesIO()
                         doc.save(buffer)
                         buffer.seek(0)
+
                         st.download_button(
                             label="⬇️ Download Jira Defect (Word)",
                             data=buffer,
@@ -144,3 +156,4 @@ if generate_btn:
 
             except Exception as e:
                 st.error(f"❌ Error generating report: {e}")
+
